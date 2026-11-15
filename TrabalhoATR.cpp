@@ -95,7 +95,7 @@ void aguarde(int tempo) {
 
 
 float gerar_valor_aleatorio_float() {
-    float val = (float)(rand() % 9999); //Gerando valor aleatório até 9999 para dividir por 10
+    float val = (float)(rand() % (9999 + 1)); //Gerando valor aleatório até 9999 para dividir por 10
     val *= (float)0.1; // Valor limitado a 999.9 por causa da visualização
     return val;
 
