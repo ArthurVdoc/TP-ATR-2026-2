@@ -462,12 +462,19 @@ DWORD WINAPI retirada(LPVOID lpParam) {
 
         // Sem timer, vai retirando mensagens assim que aparecem
 
-        // Mostra no console as mensagens retiradas da lista circular 1
-        printf("%s\n", mensagem); // Adiciona quebra de linha à mensagem
-
-
         bool tipo1 = (mensagem[0] == '1');
+		if (tipo1) {
+			// Enviar para a lista circular 2
 
+
+
+		}
+		else {
+			// Enviar para o pipe/mailslot da gestão da produção
+			// Implementação na etapa 2
+            // Mostra no console as mensagens retiradas da lista circular 1 para mensagens de tipo 2 (PROVISORIO)
+            printf("%s\n", mensagem); // Adiciona quebra de linha à mensagem
+		}
 
 
         // (Etapa 2): esta impressão sai; se tipo1, depositar na
