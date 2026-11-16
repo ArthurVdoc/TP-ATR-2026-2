@@ -9,11 +9,6 @@ HANDLE termino;
 HANDLE bloqueio;
 HANDLE atividade; // Usado na Etapa2
 
-void aguarde(int tempo) {
-    // Tempo em milisegundos
-    // Posteriormente trocar por análogo sem o uso do Sleep
-    Sleep(tempo);
-};
 
 int main() // proc2
 {

@@ -1,12 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-//#include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-//#include <pthread.h>
 #include <time.h>
-//#include<unistd.h>
 #include<windows.h>
 #include <conio.h>							// _getch
 
@@ -85,15 +82,6 @@ int ler_elemento(struct lista_circular1* lista, char* destino) {
     return 0;
 }
 
-
-
-void aguarde(int tempo) {
-    // Tempo em milisegundos
-    // Posteriormente trocar por análogo sem o uso do Sleep
-    Sleep(tempo);
-};
-
-
 float gerar_valor_aleatorio_float() {
     float val = (float)(rand() % (9999 + 1)); //Gerando valor aleatório até 9999 para dividir por 10
     val *= (float)0.1; // Valor limitado a 999.9 por causa da visualização
@@ -132,37 +120,52 @@ DWORD WINAPI supervisorio(LPVOID lpParam) {
     float tzona2 = 0.0;
     float tzona3 = 0.0;
 
+    LARGE_INTEGER tempo;
+    tempo.QuadPart = -5000000LL; // 500 ms em unidades de 100 nanosegundos
+
     int supervisorio_alive = 1;
 
     srand((unsigned int)time(NULL) + GetCurrentThreadId());
 
+    HANDLE htimer = CreateWaitableTimer(NULL, FALSE, NULL); // Cria um timer que não é manualmente resetável
+	if (htimer == NULL) {
+		printf("Falha ao criar o timer do supervisorio (erro %lu).\n", GetLastError());
+		return 1;
+	}
+	if (!SetWaitableTimer(htimer, &tempo, 500, NULL, NULL, FALSE)) {
+		printf("Falha ao configurar o timer do supervisorio (erro %lu).\n", GetLastError());
+		CloseHandle(htimer);
+		return 1;
+	}
+
     HANDLE eventos[3] = { termino_supervisorio, bloqueio_supervisorio, sem_posicoes_livres };
+
+	HANDLE espera[3] = { termino_supervisorio, bloqueio_supervisorio, htimer };
 
     while (supervisorio_alive) {
 
-        // saída do laço pelo evento de término, para o ESC não
-        // travar o WaitForMultipleObjects do main.
-        if (WaitForSingleObject(termino_supervisorio, 0) == WAIT_OBJECT_0) {
-            supervisorio_alive = 0;
-            continue;
-        }
-
-
-        // Verificação de pausa no início do ciclo
-        if (WaitForSingleObject(bloqueio_supervisorio, 0) == WAIT_OBJECT_0) {
-            printf("Tarefa \"supervisorio\" bloqueada pelo usuario.\n");
-
-            DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera ou por bloqueio (desbloqueio) OU por termino indefinidamente (ele está bloqueado)
-
-            if (acordou == WAIT_OBJECT_0) { // Encerra
-                supervisorio_alive = 0;
-                continue;
-            }
-
-            // Desbloqueio
-
+		DWORD espera_supervisorio = WaitForMultipleObjects(3, espera, FALSE, INFINITE); // Espera por termino ou bloqueio ou timer
+		if (espera_supervisorio == WAIT_OBJECT_0) { // termino_supervisorio
+			supervisorio_alive = 0;
+			continue;
+		}
+		else if (espera_supervisorio == WAIT_OBJECT_0 + 1) { // bloqueio_supervisorio
+			printf("Tarefa \"supervisorio\" bloqueada pelo usuário.\n");
+			DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou desbloqueio
+			if (acordou == WAIT_OBJECT_0) { // Encerra
+				supervisorio_alive = 0;
+				continue;
+			}
+			// Desbloqueio
             printf("Tarefa \"supervisorio\" desbloqueada pelo usuario.\n");
-
+			continue;
+		}
+		else if (espera_supervisorio == WAIT_OBJECT_0 + 2) { // timer
+			// Timer disparou, continue com a execução normal
+		}
+        else {
+			printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED).\n", GetLastError());
+			supervisorio_alive = 0;
             continue;
 
         }
@@ -242,14 +245,12 @@ DWORD WINAPI supervisorio(LPVOID lpParam) {
 
         ReleaseSemaphore(sem_posicoes_ocupadas, 1, NULL);
 
-        // Aguardando o tempo
-        aguarde(1000);
-        // PRÓXIMO PASSO (Etapa 2): trocar por temporização de 500 ms sem Sleep().
-
         nseq = (nseq + 1) % (99999 + 1);
 
         if (nseq == 0) nseq++;
     }
+
+	CloseHandle(htimer); // Fechar o handle do timer antes de sair da thread
 
     return 0;
 }
@@ -273,33 +274,57 @@ DWORD WINAPI pcp(LPVOID lpParam) {
 
     srand((unsigned int)time(NULL) + GetCurrentThreadId());
 
+	int intervalo = randint(1000, 5000); // Tempo aleatório entre 1 e 5 segundos
+    LARGE_INTEGER intervalo_100ns;
+    intervalo_100ns.QuadPart = -(LONGLONG)intervalo * 10000; // Convertendo para unidades de 100 nanosegundos
+
+    HANDLE htimer = CreateWaitableTimer(NULL, FALSE, NULL); // Cria um timer que não é manualmente resetável
+    if (htimer == NULL) {
+        printf("Falha ao criar o timer do pcp (erro %lu).\n", GetLastError());
+        return 1;
+    }
+    if (!SetWaitableTimer(htimer, &intervalo_100ns, 0, NULL, NULL, FALSE)) {
+        printf("Falha ao configurar o timer do pcp (erro %lu).\n", GetLastError());
+        CloseHandle(htimer);
+        return 1;
+    }
+
+
     HANDLE eventos[3] = { termino_pcp, bloqueio_pcp, sem_posicoes_livres };
+
+	HANDLE espera[3] = { termino_pcp, bloqueio_pcp, htimer };
 
     while (pcp_alive) {
 
-
-        // saída do laço pelo evento de término (ver supervisório).
-        if (WaitForSingleObject(termino_pcp, 0) == WAIT_OBJECT_0) {
+        DWORD espera_pcp = WaitForMultipleObjects(3, espera, FALSE, INFINITE); // Espera por termino ou bloqueio ou timer
+        if (espera_pcp == WAIT_OBJECT_0) { // termino_pcp
             pcp_alive = 0;
             continue;
         }
-
-
-        // Verificação de pausa no início do ciclo
-        if (WaitForSingleObject(bloqueio_pcp, 0) == WAIT_OBJECT_0) {
-            printf("Tarefa \"pcp\" bloqueada pelo usuario.\n");
-
-            DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera ou por bloqueio (desbloqueio) OU por termino indefinidamente (ele está bloqueado)
-
+        else if (espera_pcp == WAIT_OBJECT_0 + 1) { // bloqueio_pcp
+            printf("Tarefa \"pcp\" bloqueada pelo usuário.\n");
+            DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou desbloqueio
             if (acordou == WAIT_OBJECT_0) { // Encerra
                 pcp_alive = 0;
                 continue;
             }
-
             // Desbloqueio
-
             printf("Tarefa \"pcp\" desbloqueada pelo usuario.\n");
-
+            continue;
+        }
+        else if (espera_pcp == WAIT_OBJECT_0 + 2) { // timer
+            // Timer disparou, reprogramação do timer e continue com a execução normal
+            intervalo = randint(1000, 5000); // Tempo aleatório entre 1 e 5 segundos
+            intervalo_100ns.QuadPart = -(LONGLONG)intervalo * 10000; // Convertendo para unidades de 100 nanosegundos            }
+            if (!SetWaitableTimer(htimer, &intervalo_100ns, 0, NULL, NULL, FALSE)) {
+                printf("Falha ao configurar o timer do pcp (erro %lu).\n", GetLastError());
+                CloseHandle(htimer);
+                return 1;
+            }
+        }
+        else {
+            printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED).\n", GetLastError());
+            pcp_alive = 0;
             continue;
 
         }
@@ -376,20 +401,12 @@ DWORD WINAPI pcp(LPVOID lpParam) {
 
         ReleaseSemaphore(sem_posicoes_ocupadas, 1, NULL);
 
-
-        // Aguardando o tempo
-        aguarde(1000);
-
-        // Estapa 2 será de 1 a 5 s, como abaixo
-        // aguarde(1000 * randint(1, 5));
-        // Intervalo aleatório de 1 a 5 s.
-
-
-
         nseq = (nseq + 1) % (99999 + 1);
 
         if (nseq == 0) nseq++;
     }
+
+	CloseHandle(htimer); // Fechar o handle do timer antes de sair da thread)
 
     return 0;
 }
