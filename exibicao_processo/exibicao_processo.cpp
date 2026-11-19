@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#include "..\lista2.h"
 
 HANDLE termino;
 HANDLE bloqueio;

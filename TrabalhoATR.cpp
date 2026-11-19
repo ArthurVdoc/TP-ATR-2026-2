@@ -6,7 +6,7 @@
 #include <time.h>
 #include<windows.h>
 #include <conio.h>							// _getch
-
+#include "lista2.h"
 
 #define TAMANHO_LISTA 100
 #define COMPRIMENTO_MAX_MSG 51
@@ -52,33 +52,38 @@ HANDLE termino_processo_exibicao_processo;
 HANDLE bloqueio_processo_gestao_producao;
 HANDLE bloqueio_processo_exibicao_processo;
 
+// Semáforos globais para a lista circular 2
+HANDLE sem_vagas_lista_2;
+HANDLE sem_mensagens_lista_2;
 
 
 struct lista_circular1 LISTA_CIRCULAR;
 
+lista_circular2* LISTA_CIRCULAR_2; // Ponteiro para a lista circular 2 na memória compartilhada
+
 int adicionar_elemento(struct lista_circular1* lista, char* mensagem) {
     // Semáforos cuidam de nunca haver um extravasamento da lista
     // portanto não haverá conferimento que possivelmente irá causar conflito com o semaforo aqui
-
     int novo_final = (lista->final + 1) % TAMANHO_LISTA;
-
     strcpy(&lista->mensagens[lista->final][0], mensagem);
-
     lista->final = novo_final;
-
     return 0;
 }
 
 int ler_elemento(struct lista_circular1* lista, char* destino) {
     //Semáforos cuidam de nunca haver uma retirada de lista vazia 
-
     int novo_inicio = (lista->inicio + 1) % TAMANHO_LISTA;
-
-
     strcpy(destino, &lista->mensagens[lista->inicio][0]);
-
     lista->inicio = novo_inicio;
+    return 0;
+}
 
+int adicionar_elemento_lista2(struct lista_circular2* lista, char* mensagem) {
+	// Semáforos cuidam de nunca haver um extravasamento da lista
+	// portanto não haverá conferimento que possivelmente irá causar conflito com o semaforo aqui
+	int novo_final = (lista->final + 1) % TAMANHO_LISTA_2;
+    strcpy(&lista->mensagens[lista->final][0], mensagem);
+    lista->final = novo_final;
     return 0;
 }
 
@@ -164,7 +169,7 @@ DWORD WINAPI supervisorio(LPVOID lpParam) {
 			// Timer disparou, continue com a execução normal
 		}
         else {
-			printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED).\n", GetLastError());
+			printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED %lu).\n", GetLastError());
 			supervisorio_alive = 0;
             continue;
 
@@ -315,7 +320,7 @@ DWORD WINAPI pcp(LPVOID lpParam) {
         else if (espera_pcp == WAIT_OBJECT_0 + 2) { // timer
             // Timer disparou, reprogramação do timer e continue com a execução normal
             intervalo = randint(1000, 5000); // Tempo aleatório entre 1 e 5 segundos
-            intervalo_100ns.QuadPart = -(LONGLONG)intervalo * 10000; // Convertendo para unidades de 100 nanosegundos            }
+            intervalo_100ns.QuadPart = -(LONGLONG)intervalo * 10000; // Convertendo para unidades de 100 nanosegundos
             if (!SetWaitableTimer(htimer, &intervalo_100ns, 0, NULL, NULL, FALSE)) {
                 printf("Falha ao configurar o timer do pcp (erro %lu).\n", GetLastError());
                 CloseHandle(htimer);
@@ -323,7 +328,7 @@ DWORD WINAPI pcp(LPVOID lpParam) {
             }
         }
         else {
-            printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED).\n", GetLastError());
+            printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED %lu).\n", GetLastError());
             pcp_alive = 0;
             continue;
 
@@ -423,6 +428,9 @@ DWORD WINAPI retirada(LPVOID lpParam) {
     // bloqueada com a lista vazia.
     HANDLE eventos[3] = { termino_retirada, bloqueio_retirada, sem_posicoes_ocupadas };
 
+    // espera de vagas na lista 2.
+	HANDLE espera_vaga_lista_2[3] = { termino_retirada, bloqueio_retirada, sem_vagas_lista_2 };
+
     int retirada_alive = 1;
     while (retirada_alive) {
 
@@ -465,6 +473,45 @@ DWORD WINAPI retirada(LPVOID lpParam) {
         bool tipo1 = (mensagem[0] == '1');
 		if (tipo1) {
 			// Enviar para a lista circular 2
+            DWORD vaga_rapida_lista_2 = WaitForSingleObject(sem_vagas_lista_2, 0);
+			if(vaga_rapida_lista_2 == WAIT_OBJECT_0) {
+				// Processar mensagem para lista 2
+                adicionar_elemento_lista2(LISTA_CIRCULAR_2, mensagem);
+				if(ReleaseSemaphore(sem_mensagens_lista_2, 1, NULL) == FALSE) {
+					printf("Erro ao liberar semáforo de mensagens da lista 2.\n");
+				}
+            }
+            else {
+				printf("tarefa \"retirada\" diz: Lista circular 2 esta cheia. Esperando vaga ou bloqueio/termino...\n");
+               
+                DWORD acordou;
+                do {
+                    acordou = WaitForMultipleObjects(3, espera_vaga_lista_2, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista 2 esvaziar
+
+                    //Esperar a lista e o término do programa:
+                    if (acordou == WAIT_OBJECT_0) { // termino_supervisorio
+                        retirada_alive = 0; //retirada terminada
+                        break;
+                    }
+					else if (acordou == WAIT_OBJECT_0 + 1) { // bloqueio_retirada
+                        printf("Tarefa \"retirada\" bloqueada pelo usuário enquanto esperava por lista2 cheia \n.");
+
+                        acordou = WaitForMultipleObjects(2, espera_vaga_lista_2, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista 2 esvaziar
+
+                        if (acordou == WAIT_OBJECT_0) { // Encerra
+                            retirada_alive = 0;
+                            break;
+                        }
+                        // Desbloqueio
+
+                        continue;
+                    }
+                } while (acordou != WAIT_OBJECT_0 + 2);
+
+                if (retirada_alive == 0) { // termino_retirada
+                    continue;
+                }
+            }
 
 
 
@@ -510,9 +557,35 @@ int main() {
     bloqueio_pcp = CreateEvent(NULL, FALSE, FALSE, NULL);
     bloqueio_retirada = CreateEvent(NULL, FALSE, FALSE, NULL);
 
+	// Semáforos globais para a lista circular 2
+	sem_vagas_lista_2 = CreateSemaphoreA(NULL, TAMANHO_LISTA_2, TAMANHO_LISTA_2, VAGAS);
+	sem_mensagens_lista_2 = CreateSemaphoreA(NULL, 0, TAMANHO_LISTA_2, MENSAGENS);
+    if (sem_mensagens_lista_2 == NULL || sem_vagas_lista_2 == NULL) {
+        printf("Falha na criação dos semáforos para a lista 2 (erro %lu)\n", GetLastError());
+    }
+
+
+    // Criação de seção de memória compartilhada para a lista circular 2
+    HANDLE hsection = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
+        sizeof(struct lista_circular2), MEMORIA);
+    if (hsection == NULL) {
+        printf("Falha ao criar a seção de memória compartilhada (erro %lu).\n", GetLastError());
+        return 1;
+    }
+    // Mapear a seção de memória compartilhada para o espaço de endereço do processo
+    LPVOID lpImage = MapViewOfFile(hsection, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    if (lpImage == NULL) {
+        printf("Falha ao mapear a seção de memória compartilhada (erro %lu).\n", GetLastError());
+        CloseHandle(hsection);
+        return 1;
+    }
+    LISTA_CIRCULAR_2 = (struct lista_circular2*)lpImage; // Ponteiro para a lista circular 2 na memória compartilhada
+    // Inicializar a lista circular 2 com 0 elementos
+    LISTA_CIRCULAR_2->inicio = 0;
+    LISTA_CIRCULAR_2->final = 0;
+
 
     // Criar as três threads deste processo: PCP, Supervisório, Retirada
-
     HANDLE threads[3];
 
     // Criando as threads operárias
@@ -531,7 +604,6 @@ int main() {
     //bloqueios -> reset automático (como nas threads)
     bloqueio_processo_exibicao_processo = CreateEventA(NULL, FALSE, FALSE, "Local\\bloqueio_exibicao_processo");
     bloqueio_processo_gestao_producao = CreateEventA(NULL, FALSE, FALSE, "Local\\bloqueio_gestao_producao");
-
 
     // Criar **nomes** dos eventos **extaprocesso** que enviarão mensagem para proc2 e proc3, 
     // pois precisarão de ser identificados pelos outros
@@ -685,6 +757,8 @@ int main() {
             CloseHandle(mutex_lista_circular);
             CloseHandle(sem_posicoes_livres);
             CloseHandle(sem_posicoes_ocupadas);
+            CloseHandle(sem_vagas_lista_2);
+            CloseHandle(sem_mensagens_lista_2);
 
             //Fechando eventos de termino
             CloseHandle(termino_supervisorio);
@@ -701,6 +775,12 @@ int main() {
             CloseHandle(termino_processo_gestao_producao);
             CloseHandle(bloqueio_processo_exibicao_processo);
             CloseHandle(bloqueio_processo_gestao_producao);
+
+            //Unmapping
+            UnmapViewOfFile(lpImage);
+
+            //Fechando mapeamento da lista 2
+            CloseHandle(hsection);
 
             // Encerrada a thread principal
             running = 0;
