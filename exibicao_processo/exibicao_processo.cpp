@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 // exibicao_processo.cpp : Este arquivo contém a função 'main'. A execução do programa começa e termina ali.
 //
 
@@ -8,8 +9,21 @@
 
 HANDLE termino;
 HANDLE bloqueio;
-HANDLE atividade; // Usado na Etapa2
 
+HANDLE hsection;
+lista_circular2* LISTA_CIRCULAR_2; // Ponteiro para a lista circular 2 na memória compartilhada
+
+// Semáforos globais para a lista circular 2
+HANDLE sem_vagas_lista_2;
+HANDLE sem_mensagens_lista_2;
+
+int ler_elemento_lista_2(struct lista_circular2* lista, char* destino) {
+    //Semáforos cuidam de nunca haver uma retirada de lista vazia 
+    int novo_inicio = (lista->inicio + 1) % TAMANHO_LISTA_2;
+    strcpy(destino, &lista->mensagens[lista->inicio][0]);
+    lista->inicio = novo_inicio;
+    return 0;
+}
 
 int main() // proc2
 {
@@ -22,15 +36,35 @@ int main() // proc2
         return 1;
     }
 
-    HANDLE eventos[3] = { termino, bloqueio, atividade };
+	hsection = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, MEMORIA);
+	if (hsection == NULL) {
+		printf("Falha ao abrir a secao de memoria compartilhada (erro %lu).\n", GetLastError());
+		return 1;
+	}
 
-    printf("Exibicao de pprocesso rodando normalmente.\n");
+    LISTA_CIRCULAR_2 = (struct lista_circular2*)MapViewOfFile(hsection, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+	if (LISTA_CIRCULAR_2 == NULL) {
+		printf("Falha ao mapear a secao de memória compartilhada (erro %lu).\n", GetLastError());
+		CloseHandle(hsection);
+		return 1;
+	}
+
+	sem_vagas_lista_2 = OpenSemaphoreA(SEMAPHORE_ALL_ACCESS, FALSE, VAGAS);
+	sem_mensagens_lista_2 = OpenSemaphoreA(SEMAPHORE_ALL_ACCESS, FALSE, MENSAGENS);
+	if (sem_mensagens_lista_2 == NULL || sem_vagas_lista_2 == NULL) {
+		printf("Falha ao abrir os semaforos para a lista 2 (erro %lu)\n", GetLastError());
+        return 1;
+	}
+
+    HANDLE eventos[3] = { termino, bloqueio, sem_mensagens_lista_2 };
+
+    printf("Exibicao de processo rodando normalmente.\n");
 
     int running = 1;
     while (running) {
 
 
-        DWORD resultado = WaitForMultipleObjects(2, eventos, FALSE, INFINITE);
+        DWORD resultado = WaitForMultipleObjects(3, eventos, FALSE, INFINITE);
         
         // termino
         if (resultado == WAIT_OBJECT_0) {
@@ -53,10 +87,30 @@ int main() // proc2
 
             continue;
         }
-
         // Na Etapa 2 atividade é usada
         //placeholder
+		else if (resultado == WAIT_OBJECT_0 + 2) {
+			// Retira elemento da lista circular 2
+			char mensagem[COMPRIMENTO_MAX_MSG_2];
+			ler_elemento_lista_2(LISTA_CIRCULAR_2, mensagem);
+			if (!ReleaseSemaphore(sem_vagas_lista_2, 1, NULL)) {
+				printf("Falha ao liberar semaforo de vagas para a lista 2 (erro %lu).\n", GetLastError());
+			}
+			// Exibe a mensagem
+			printf("NSEQ: %.5s TZ1: %.5s TZ2: %.5s TZ3: %.5s VOL: %.5s PRES: %.5s HORA: %.12s\n", 
+                mensagem+2, mensagem+20, mensagem+26, mensagem+32, mensagem+8, mensagem+14, mensagem+38);
+		}
+		else {
+			printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED %lu).\n", GetLastError());
+			running = 0;
+			continue;
+		}
     }
+
+	UnmapViewOfFile(LISTA_CIRCULAR_2);//desfaz o mapeamento da memória compartilhada
+	CloseHandle(hsection); // Fecha o handle da seção de memória compartilhada
+	CloseHandle(sem_vagas_lista_2);
+	CloseHandle(sem_mensagens_lista_2);
 
     CloseHandle(termino);
     CloseHandle(bloqueio);

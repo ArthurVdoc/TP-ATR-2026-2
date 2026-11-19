@@ -475,11 +475,7 @@ DWORD WINAPI retirada(LPVOID lpParam) {
 			// Enviar para a lista circular 2
             DWORD vaga_rapida_lista_2 = WaitForSingleObject(sem_vagas_lista_2, 0);
 			if(vaga_rapida_lista_2 == WAIT_OBJECT_0) {
-				// Processar mensagem para lista 2
-                adicionar_elemento_lista2(LISTA_CIRCULAR_2, mensagem);
-				if(ReleaseSemaphore(sem_mensagens_lista_2, 1, NULL) == FALSE) {
-					printf("Erro ao liberar semáforo de mensagens da lista 2.\n");
-				}
+                //passa
             }
             else {
 				printf("tarefa \"retirada\" diz: Lista circular 2 esta cheia. Esperando vaga ou bloqueio/termino...\n");
@@ -489,12 +485,12 @@ DWORD WINAPI retirada(LPVOID lpParam) {
                     acordou = WaitForMultipleObjects(3, espera_vaga_lista_2, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista 2 esvaziar
 
                     //Esperar a lista e o término do programa:
-                    if (acordou == WAIT_OBJECT_0) { // termino_supervisorio
+                    if (acordou == WAIT_OBJECT_0) { // termino
                         retirada_alive = 0; //retirada terminada
                         break;
                     }
 					else if (acordou == WAIT_OBJECT_0 + 1) { // bloqueio_retirada
-                        printf("Tarefa \"retirada\" bloqueada pelo usuário enquanto esperava por lista2 cheia \n.");
+                        printf("Tarefa \"retirada\" bloqueada pelo usuario enquanto esperava por lista2 cheia. \n");
 
                         acordou = WaitForMultipleObjects(2, espera_vaga_lista_2, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista 2 esvaziar
 
@@ -503,8 +499,13 @@ DWORD WINAPI retirada(LPVOID lpParam) {
                             break;
                         }
                         // Desbloqueio
-
+                        printf("Tarefa \"retirada\" desbloqueada pelo usuario.\n");
                         continue;
+                    }
+                    else{
+                        printf("WAIT_FAILED (erro %lu)\n", GetLastError());
+						retirada_alive = 0;
+                        break;
                     }
                 } while (acordou != WAIT_OBJECT_0 + 2);
 
@@ -513,6 +514,11 @@ DWORD WINAPI retirada(LPVOID lpParam) {
                 }
             }
 
+            // Processar mensagem para lista 2
+            adicionar_elemento_lista2(LISTA_CIRCULAR_2, mensagem);
+            if (ReleaseSemaphore(sem_mensagens_lista_2, 1, NULL) == FALSE) {
+                printf("Erro ao liberar semaforo de mensagens da lista 2.\n");
+            }
 
 
 		}
@@ -561,7 +567,8 @@ int main() {
 	sem_vagas_lista_2 = CreateSemaphoreA(NULL, TAMANHO_LISTA_2, TAMANHO_LISTA_2, VAGAS);
 	sem_mensagens_lista_2 = CreateSemaphoreA(NULL, 0, TAMANHO_LISTA_2, MENSAGENS);
     if (sem_mensagens_lista_2 == NULL || sem_vagas_lista_2 == NULL) {
-        printf("Falha na criação dos semáforos para a lista 2 (erro %lu)\n", GetLastError());
+        printf("Falha na criacao dos semaforos para a lista 2 (erro %lu)\n", GetLastError());
+        return 1;
     }
 
 
