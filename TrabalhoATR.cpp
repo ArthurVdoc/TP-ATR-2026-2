@@ -56,6 +56,10 @@ HANDLE bloqueio_processo_exibicao_processo;
 HANDLE sem_vagas_lista_2;
 HANDLE sem_mensagens_lista_2;
 
+// Mailslots de escrita para os dois processos de tela
+HANDLE mslot_gestao;
+HANDLE mslot_exibicao;
+
 
 struct lista_circular1 LISTA_CIRCULAR;
 
@@ -502,7 +506,7 @@ DWORD WINAPI retirada(LPVOID lpParam) {
                         printf("Tarefa \"retirada\" desbloqueada pelo usuario.\n");
                         continue;
                     }
-                    else{
+                    else if (acordou != WAIT_OBJECT_0 + 2){
                         printf("WAIT_FAILED (erro %lu)\n", GetLastError());
 						retirada_alive = 0;
                         break;
@@ -526,7 +530,10 @@ DWORD WINAPI retirada(LPVOID lpParam) {
 			// Enviar para o pipe/mailslot da gestão da produção
 			// Implementação na etapa 2
             // Mostra no console as mensagens retiradas da lista circular 1 para mensagens de tipo 2 (PROVISORIO)
-            printf("%s\n", mensagem); // Adiciona quebra de linha à mensagem
+            //printf("%s\n", mensagem); // Adiciona quebra de linha à mensagem
+
+            DWORD escritos;
+            WriteFile(mslot_gestao, mensagem, (DWORD)strlen(mensagem), &escritos, NULL);
 		}
 
 
@@ -592,15 +599,6 @@ int main() {
     LISTA_CIRCULAR_2->final = 0;
 
 
-    // Criar as três threads deste processo: PCP, Supervisório, Retirada
-    HANDLE threads[3];
-
-    // Criando as threads operárias
-    threads[0] = CreateThread(NULL, 0, supervisorio, NULL, 0, NULL);
-    threads[1] = CreateThread(NULL, 0, pcp, NULL, 0, NULL);
-    threads[2] = CreateThread(NULL, 0, retirada, NULL, 0, NULL);
-
-
 
     // Criação de eventos de **processo**
 
@@ -663,6 +661,48 @@ int main() {
         printf("Falha ao criar o processo de gestao da producao (erro %lu).\n", GetLastError());
     }
 
+    // Iniciando mailslot de gestão
+
+    mslot_gestao = INVALID_HANDLE_VALUE;
+
+    for (int i = 0; i < 50 && mslot_gestao == INVALID_HANDLE_VALUE; i++) {
+        mslot_gestao = CreateFileA(MAILSLOT_GESTAO, GENERIC_WRITE, FILE_SHARE_READ, 
+            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (mslot_gestao == INVALID_HANDLE_VALUE)
+            Sleep(100);
+
+    }
+
+    if (mslot_gestao == INVALID_HANDLE_VALUE) {
+        printf("Falha ao iniciar mailslot de gestao (erro: %lu).\n", GetLastError());
+        exit(1);
+    }
+
+    // Iniciando mailslot de exibicao
+
+    mslot_exibicao = INVALID_HANDLE_VALUE;
+
+    for (int i = 0; i < 50 && mslot_exibicao == INVALID_HANDLE_VALUE; i++) {
+        mslot_exibicao = CreateFileA(MAILSLOT_EXIBICAO, GENERIC_WRITE, FILE_SHARE_READ,
+            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (mslot_exibicao == INVALID_HANDLE_VALUE)
+            Sleep(100);
+
+    }
+
+    if (mslot_exibicao == INVALID_HANDLE_VALUE) {
+        printf("Falha ao iniciar mailslot de exibicao (erro: %lu).\n", GetLastError());
+        exit(1);
+    }
+
+    // Criar as três threads deste processo: PCP, Supervisório, Retirada
+    HANDLE threads[3];
+
+    // Criando as threads operárias
+    threads[0] = CreateThread(NULL, 0, supervisorio, NULL, 0, NULL);
+    threads[1] = CreateThread(NULL, 0, pcp, NULL, 0, NULL);
+    threads[2] = CreateThread(NULL, 0, retirada, NULL, 0, NULL);
+
 
     // Loop para ler teclado
         // s: alterna pausa / despausa a *leitura do supervisório* (desse processo)
@@ -673,13 +713,14 @@ int main() {
         // 1: Limpa a tela de dados de processo (processo externo)
         // 2: Limpa a tela de acompanhamento da produção (processo externo)
         // ESC: Encerra *todas* as tarefas/processos (intra e extra processo)
-    // As teclas 1 e 2 são Etapa 2 (pipe ou mailslot); aqui ficam sem efeito.
+ 
 
     int nTecla;
     int running = 1; // Indica que o loop principal está de pé
 
     do {
         nTecla = _getch();
+        DWORD msg;
 
         switch (nTecla)
         {
@@ -704,7 +745,7 @@ int main() {
 
         case 'p':
             // p: Alterna pausa / despausa a *exibição de processo* (processo externo)
-
+         
             SetEvent(bloqueio_processo_exibicao_processo);
 
             break;
@@ -717,13 +758,15 @@ int main() {
             break;
 
         case '1':
-            // 1: Limpa a tela de dados de processo (processo externo)
-            // Implementação na etapa 2
+            WriteFile(mslot_exibicao, "LIMPAR", 6, &msg, NULL);
+            printf("1: Comando de limpar tela enviado ao exibicao.\n");
+            // Mensagem de notificação para usuário
             break;
 
         case '2':
-            // 2: Limpa a tela de acompanhamento da produção (processo externo)
-            // Implementação na etapa 2
+            WriteFile(mslot_gestao, "LIMPAR", 6, &msg, NULL);
+            printf("2: Comando de limpar tela enviado ao gestao.\n");
+            // Mensagem de notificação para usuário
             break;
 
         case 0x1B: // ESC
@@ -776,6 +819,10 @@ int main() {
             CloseHandle(bloqueio_supervisorio);
             CloseHandle(bloqueio_pcp);
             CloseHandle(bloqueio_retirada);
+
+            // Fechando mailslots
+            CloseHandle(mslot_gestao);
+            CloseHandle(mslot_exibicao);
 
             //Fechando eventos dos processos externos
             CloseHandle(termino_processo_exibicao_processo);

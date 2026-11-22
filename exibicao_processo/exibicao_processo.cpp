@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#include <string.h> // Por causa do strcmp
 #include "..\lista2.h"
 
 HANDLE termino;
@@ -16,6 +17,9 @@ lista_circular2* LISTA_CIRCULAR_2; // Ponteiro para a lista circular 2 na memór
 // Semáforos globais para a lista circular 2
 HANDLE sem_vagas_lista_2;
 HANDLE sem_mensagens_lista_2;
+
+HANDLE mslot; // handle do mailslot
+HANDLE atividade; // handle de mensagem do mailslot
 
 int ler_elemento_lista_2(struct lista_circular2* lista, char* destino) {
     //Semáforos cuidam de nunca haver uma retirada de lista vazia 
@@ -56,7 +60,28 @@ int main() // proc2
         return 1;
 	}
 
-    HANDLE eventos[3] = { termino, bloqueio, sem_mensagens_lista_2 };
+    // Criar mailslot
+
+    mslot = CreateMailslotA(MAILSLOT_EXIBICAO, 0, MAILSLOT_WAIT_FOREVER, NULL);
+
+    if (mslot == INVALID_HANDLE_VALUE) {
+        printf("Falha ao criar mailslot da exibicao (erro: %lu).\n", GetLastError());
+        exit(1);
+    }
+
+    OVERLAPPED ov;
+    ZeroMemory(&ov, sizeof(ov));
+
+    atividade = CreateEvent(NULL, TRUE, FALSE, NULL); // reset manual
+    ov.hEvent = atividade;
+
+    char msg_buffer[100];
+    DWORD lidos = 0;
+
+    ReadFile(mslot, msg_buffer, sizeof(msg_buffer) - 1, &lidos, &ov);
+
+
+    HANDLE eventos[4] = { termino, bloqueio, sem_mensagens_lista_2, atividade };
 
     printf("Exibicao de processo rodando normalmente.\n");
 
@@ -64,7 +89,7 @@ int main() // proc2
     while (running) {
 
 
-        DWORD resultado = WaitForMultipleObjects(3, eventos, FALSE, INFINITE);
+        DWORD resultado = WaitForMultipleObjects(4, eventos, FALSE, INFINITE);
         
         // termino
         if (resultado == WAIT_OBJECT_0) {
@@ -99,7 +124,20 @@ int main() // proc2
 			// Exibe a mensagem
 			printf("NSEQ: %.5s TZ1: %.5s TZ2: %.5s TZ3: %.5s VOL: %.5s PRES: %.5s HORA: %.12s\n", 
                 mensagem+2, mensagem+20, mensagem+26, mensagem+32, mensagem+8, mensagem+14, mensagem+38);
-		}
+		} 
+
+        // mailslot: comando de limpeza
+        else if (resultado == WAIT_OBJECT_0 + 3) { 
+            GetOverlappedResult(mslot, &ov, &lidos, FALSE);
+            msg_buffer[lidos] = '\0';
+
+            if (strcmp(msg_buffer, "LIMPAR") == 0) {
+                system("cls");
+            }
+
+            ResetEvent(atividade);
+            ReadFile(mslot, msg_buffer, sizeof(msg_buffer) - 1, &lidos, &ov);
+        }
 		else {
 			printf("Erro inesperado no WaitForMultipleObjects (WAIT_FAILED %lu).\n", GetLastError());
 			running = 0;
@@ -111,6 +149,9 @@ int main() // proc2
 	CloseHandle(hsection); // Fecha o handle da seção de memória compartilhada
 	CloseHandle(sem_vagas_lista_2);
 	CloseHandle(sem_mensagens_lista_2);
+
+    CloseHandle(atividade);
+    CloseHandle(mslot);
 
     CloseHandle(termino);
     CloseHandle(bloqueio);

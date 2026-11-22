@@ -7,6 +7,9 @@
 #define VAGAS "Local\\lista2_livres"
 #define MENSAGENS "Local\\lista2_ocupadas"
 
+#define MAILSLOT_GESTAO "\\\\.\\mailslot\\correio_gestao"
+#define MAILSLOT_EXIBICAO "\\\\.\\mailslot\\correio_exibicao"
+
 
 struct lista_circular2 {
     int inicio;
