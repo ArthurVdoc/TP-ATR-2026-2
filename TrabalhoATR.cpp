@@ -159,7 +159,7 @@ DWORD WINAPI supervisorio(LPVOID lpParam) {
 			continue;
 		}
 		else if (espera_supervisorio == WAIT_OBJECT_0 + 1) { // bloqueio_supervisorio
-			printf("Tarefa \"supervisorio\" bloqueada pelo usuário.\n");
+			printf("Tarefa \"supervisorio\" bloqueada pelo usuario.\n");
 			DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou desbloqueio
 			if (acordou == WAIT_OBJECT_0) { // Encerra
 				supervisorio_alive = 0;
@@ -224,7 +224,7 @@ DWORD WINAPI supervisorio(LPVOID lpParam) {
                     break;
                 }
                 else if (acordou == WAIT_OBJECT_0 + 1) { // bloqueio_supervisorio
-                    printf("Tarefa \"supervisorio\" bloqueada pelo usuário enquanto esperava por lista cheia.\n");
+                    printf("Tarefa \"supervisorio\" bloqueada pelo usuario enquanto esperava por lista cheia.\n");
 
                     acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista esvaziar
 
@@ -311,7 +311,7 @@ DWORD WINAPI pcp(LPVOID lpParam) {
             continue;
         }
         else if (espera_pcp == WAIT_OBJECT_0 + 1) { // bloqueio_pcp
-            printf("Tarefa \"pcp\" bloqueada pelo usuário.\n");
+            printf("Tarefa \"pcp\" bloqueada pelo usuario.\n");
             DWORD acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou desbloqueio
             if (acordou == WAIT_OBJECT_0) { // Encerra
                 pcp_alive = 0;
@@ -380,7 +380,7 @@ DWORD WINAPI pcp(LPVOID lpParam) {
                     break;
                 }
                 else if (acordou == WAIT_OBJECT_0 + 1) { // bloqueio_pcp
-                    printf("Tarefa \"pcp\" bloqueada pelo usuário enquanto esperava por lista cheia.\n");
+                    printf("Tarefa \"pcp\" bloqueada pelo usuario enquanto esperava por lista cheia.\n");
 
                     acordou = WaitForMultipleObjects(2, eventos, FALSE, INFINITE); // Espera por termino ou bloqueio ou lista esvaziar
 
@@ -583,13 +583,13 @@ int main() {
     HANDLE hsection = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
         sizeof(struct lista_circular2), MEMORIA);
     if (hsection == NULL) {
-        printf("Falha ao criar a seção de memória compartilhada (erro %lu).\n", GetLastError());
+        printf("Falha ao criar a secao de memoria compartilhada (erro %lu).\n", GetLastError());
         return 1;
     }
     // Mapear a seção de memória compartilhada para o espaço de endereço do processo
     LPVOID lpImage = MapViewOfFile(hsection, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (lpImage == NULL) {
-        printf("Falha ao mapear a seção de memória compartilhada (erro %lu).\n", GetLastError());
+        printf("Falha ao mapear a secao de memoria compartilhada (erro %lu).\n", GetLastError());
         CloseHandle(hsection);
         return 1;
     }
@@ -669,7 +669,7 @@ int main() {
         mslot_gestao = CreateFileA(MAILSLOT_GESTAO, GENERIC_WRITE, FILE_SHARE_READ, 
             NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (mslot_gestao == INVALID_HANDLE_VALUE)
-            Sleep(100);
+			WaitForSingleObject(pi_exibicao_proc3.hProcess, 100); // Espera 100 ms para o processo de gestão da produção iniciar
 
     }
 
@@ -686,7 +686,7 @@ int main() {
         mslot_exibicao = CreateFileA(MAILSLOT_EXIBICAO, GENERIC_WRITE, FILE_SHARE_READ,
             NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
         if (mslot_exibicao == INVALID_HANDLE_VALUE)
-            Sleep(100);
+            WaitForSingleObject(pi_exibicao_proc2.hProcess, 100); // Espera 100 ms para o processo de exibição iniciar
 
     }
 

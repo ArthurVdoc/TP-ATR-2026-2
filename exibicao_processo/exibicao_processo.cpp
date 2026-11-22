@@ -48,7 +48,7 @@ int main() // proc2
 
     LISTA_CIRCULAR_2 = (struct lista_circular2*)MapViewOfFile(hsection, FILE_MAP_ALL_ACCESS, 0, 0, 0);
 	if (LISTA_CIRCULAR_2 == NULL) {
-		printf("Falha ao mapear a secao de memória compartilhada (erro %lu).\n", GetLastError());
+		printf("Falha ao mapear a secao de memoria compartilhada (erro %lu).\n", GetLastError());
 		CloseHandle(hsection);
 		return 1;
 	}
